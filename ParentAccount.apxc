@@ -1,0 +1,143 @@
+public class ParentAccounts {
+    
+    public static Boolean calledFromParentAccounts = false;
+    
+    public static void ParentAccountsInsert(List<Account> newAccounts, Map<Id, Account> newAccountsmap){
+        
+        ParentAccounts.calledFromParentAccounts = true;
+        if(newAccounts == NULL || newAccounts.size() == 0){
+            return;
+        }
+        
+        //child accounts who have parent account
+        Map<Id, Account> parAccounts = new Map<Id, Account>();
+        for(Account acc: newAccounts){
+            if(acc.ParentId != null){
+                parAccounts.put(acc.Id, acc);
+            }
+        }
+        if(parAccounts.size() == 0){
+            return;
+        }
+        
+        List<Account> childAccounts = [Select Id, parent.owner.Id, parent.owner.Name, owner.Id, owner.Name, Name 
+                                       from Account 
+                                       where Id in: parAccounts.keySet()];
+        
+        if(childAccounts == null || childAccounts.size() == 0){
+            system.debug('returned from line 20 childAccounts' + childAccounts);
+            return;
+        }
+        
+        
+        List<AccountTeamMember> accTeamList = new List<AccountTeamMember>();
+        for(Account acc: childAccounts){
+            if(acc.OwnerId == acc.parent.owner.Id){
+                system.debug('acc.OwnerId: ' + acc.OwnerId );
+                system.debug('acc.parent.owner.Id: ' + acc.parent.owner.Id);
+                system.debug('got out line 35 ParentAccountsInsert');
+                continue;
+            }
+            
+            AccountTeamMember accTeam = new AccountTeamMember();
+            accTeam.AccountAccessLevel = 'Edit';
+            accTeam.TeamMemberRole = 'Parent Business Partner Owner';
+            accTeam.AccountId = acc.Id;
+            accTeam.UserId = acc.parent.owner.Id;
+            accTeamList.add(accTeam);
+        }
+        
+        system.debug('childAccounts: ' + childAccounts);
+        system.debug('childAccounts size: ' + childAccounts.size());
+        system.debug('accTeamList: '+ accTeamList);
+        system.debug('accTeamList size: '+ accTeamList.size());
+        if(!accTeamList.isempty()){
+            insert accTeamList;
+        }
+        
+    }
+    
+    
+    public static void ParentAccountsUpdate(Map<Id, Account> oldMap, Map<Id, Account> newMap){
+        
+        ParentAccounts.calledFromParentAccounts = true;
+        Map<Id, Account> ownerChanged = new Map<Id, Account>();
+        Map<Id, Account> childSwapped = new Map<Id, Account>();
+
+        
+        List<Id> oldAccounts = new List<Id>();
+        
+        for(Id i: newMap.keyset()){
+            if(oldMap.get(i).OwnerId != newMap.get(i).OwnerId && newMap.get(i).ParentId == NULL){
+                oldAccounts.add(oldMap.get(i).Id);
+                ownerChanged.put(i, newMap.get(i));
+            }
+			
+            if(oldMap.get(i).ParentId != newMap.get(i).ParentId){
+                oldAccounts.add(oldMap.get(i).ID);
+                childSwapped.put(i, newMap.get(i));
+            }            
+        }
+        system.debug(ownerChanged.size() + ': :' + childSwapped.size() + ': :' + oldAccounts.size());
+        if(ownerChanged.size() == 0 && childSwapped.size() == 0 && oldAccounts.size() == 0){
+            return;
+        }
+        //getting details of ownerChanged of Parent Account
+        List<Account> childAccounts = [select Id, Name, Parent.Owner.Id, OwnerId 
+                                       from Account 
+                                       where ParentId IN: ownerChanged.keyset()];
+        for(Account i: childAccounts){
+            oldAccounts.add(i.Id);
+        }
+        
+        List<AccountTeamMember> oldAccountTeamList = [Select Id 
+                                               		from AccountTeamMember 
+                                               		where AccountId in: oldAccounts and TeamMemberRole = 'Parent Business Partner Owner'];
+        
+        system.debug('oldAccounts: ' + oldAccounts);
+        system.debug('oldAccountTeamList: ' + oldAccountTeamList);
+        if(!oldAccountTeamList.isEmpty()){
+            delete oldAccountTeamList;
+        }
+        
+        
+        
+        List<AccountTeamMember> newAccountTeam = new List<AccountTeamMember>();
+        for(Account acc: childAccounts){
+            if(acc.OwnerId == acc.parent.owner.Id){
+                continue;
+            }
+            AccountTeamMember accTeam = new AccountTeamMember();
+            accTeam.AccountAccessLevel = 'Edit';
+            accTeam.AccountId = acc.Id;
+            accTeam.UserId = acc.parent.owner.Id;
+            accTeam.TeamMemberRole = 'Parent Business Partner Owner';
+            newAccountTeam.add(accTeam);
+        }
+        
+        //getting details of the child accounts
+        childSwapped = new Map<Id, Account>([select Id, Name, Parent.Owner.Id, OwnerId 
+                                       from Account 
+                                       where Id IN: childSwapped.keyset() and ParentId != NULL]);
+        system.debug('ownerChanged: ' + ownerChanged);
+        system.debug('childSwapped' + childSwapped);
+        for(Id i: childSwapped.keySet()){
+            if(childSwapped.get(i).OwnerId == childSwapped.get(i).Parent.Owner.Id){
+                continue;
+            }
+            AccountTeamMember accTeam = new AccountTeamMember();
+            accTeam.AccountAccessLevel = 'Edit';
+            accTeam.AccountId = childSwapped.get(i).Id;
+            accTeam.UserId = childSwapped.get(i).Parent.Owner.Id;
+            accTeam.TeamMemberRole = 'Parent Business Partner Owner';
+            newAccountTeam.add(accTeam);
+        }
+        
+        system.debug('newAccountTeam: ' + newAccountTeam);
+        if(!newAccountTeam.isEmpty()){
+            insert newAccountTeam;
+        }
+        
+    }
+
+}
